@@ -1,0 +1,682 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VitalPath Mumbai - Geospatial Command Center</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <style>
+        body, html {
+            height: 100%;
+            margin: 0;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #0b0e14;
+            color: #e0e0e0;
+            overflow: hidden;
+        }
+        #map {
+            height: 100vh;
+            width: 100vw;
+            z-index: 1;
+        }
+        .sidebar {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 350px;
+            height: 100vh;
+            background: rgba(15, 23, 42, 0.9);
+            backdrop-filter: blur(10px);
+            z-index: 1000;
+            box-shadow: 2px 0 10px rgba(0,0,0,0.5);
+            display: flex;
+            flex-direction: column;
+            transition: transform 0.3s ease;
+            overflow-y: auto;
+        }
+        .sidebar.collapsed {
+            transform: translateX(-350px);
+        }
+        .sidebar-toggle {
+            position: absolute;
+            top: 20px;
+            right: -40px;
+            width: 40px;
+            height: 40px;
+            background: #1e293b;
+            color: white;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            border-radius: 0 4px 4px 0;
+            box-shadow: 2px 0 5px rgba(0,0,0,0.3);
+        }
+        .sidebar-header {
+            padding: 20px;
+            border-bottom: 1px solid #334155;
+            background: #1e293b;
+        }
+        .sidebar-header h1 {
+            margin: 0;
+            font-size: 1.2rem;
+            color: #38bdf8;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        .feed-container {
+            flex: 1;
+            overflow-y: auto;
+            padding: 10px;
+            background: rgba(0,0,0,0.2);
+            border-radius: 8px;
+            margin: 10px;
+            max-height: 300px;
+        }
+        .feed-item {
+            background: #1e293b;
+            margin-bottom: 10px;
+            padding: 12px;
+            border-radius: 6px;
+            border-left: 4px solid #38bdf8;
+            font-size: 0.9rem;
+            animation: slideIn 0.3s ease;
+        }
+        .feed-item.emergency { border-left-color: #ef4444; }
+        .feed-item.dispatch { border-left-color: #f59e0b; }
+        .feed-item time {
+            display: block;
+            font-size: 0.75rem;
+            color: #94a3b8;
+            margin-top: 5px;
+        }
+        .feed-item .actions {
+            margin-top: 8px;
+            display: flex;
+            gap: 5px;
+        }
+        .feed-item .btn-small {
+            padding: 4px 8px;
+            font-size: 0.75rem;
+            background: #334155;
+            color: #38bdf8;
+            border: 1px solid #38bdf8;
+            border-radius: 3px;
+            cursor: pointer;
+        }
+        .feed-item .btn-small:hover {
+            background: #38bdf8;
+            color: #1e293b;
+        }
+        @keyframes slideIn {
+            from { opacity: 0; transform: translateX(-10px); }
+            to { opacity: 1; transform: translateX(0); }
+        }
+        .form-container {
+            padding: 20px;
+            background: #1e293b;
+            border-top: 1px solid #334155;
+        }
+        .form-container h3 { margin-top: 0; font-size: 1rem; color: #38bdf8; }
+        input, select {
+            width: 100%;
+            padding: 8px;
+            margin-bottom: 10px;
+            background: #0f172a;
+            border: 1px solid #334155;
+            color: white;
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+        .btn {
+            width: 100%;
+            padding: 10px;
+            background: #0ea5e9;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: bold;
+        }
+        .btn:hover { background: #0284c7; }
+        
+        /* Map Overlays */
+        .leaflet-popup-content-wrapper {
+            background: #1e293b;
+            color: white;
+            border: 1px solid #334155;
+        }
+        .leaflet-popup-tip { background: #1e293b; }
+        
+        .legend {
+            position: absolute;
+            bottom: 30px;
+            right: 30px;
+            background: rgba(15, 23, 42, 0.9);
+            padding: 15px;
+            border-radius: 8px;
+            z-index: 1000;
+            border: 1px solid #334155;
+        }
+        .legend-item { display: flex; align-items: center; margin-bottom: 5px; font-size: 0.85rem; }
+        .legend-color { width: 12px; height: 12px; border-radius: 50%; margin-right: 8px; }
+
+        /* New Label Style */
+        .patient-label {
+            background: rgba(239, 68, 68, 0.9) !important;
+            border: 1px solid #ef4444 !important;
+            color: white !important;
+            font-weight: bold !important;
+            font-size: 12px !important;
+            padding: 2px 6px !important;
+            border-radius: 4px !important;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.3) !important;
+        }
+        .patient-label::before {
+            border-top-color: rgba(239, 68, 68, 0.9) !important;
+        }
+
+        /* SQL Query Styles */
+        .sql-container {
+            background: rgba(15, 23, 42, 0.95);
+            border: 1px solid #334155;
+            border-radius: 8px;
+            padding: 15px;
+            margin-top: 10px;
+            margin-bottom: 20px;
+        }
+        .sql-results-container {
+            max-height: 400px;
+            overflow-y: auto;
+            margin-top: 10px;
+            border: 1px solid #334155;
+            border-radius: 4px;
+            background: rgba(0, 0, 0, 0.3);
+        }
+        .sql-textarea {
+            width: 100%;
+            min-height: 100px;
+            background: #0f172a;
+            color: #e0e0e0;
+            border: 1px solid #334155;
+            border-radius: 4px;
+            padding: 10px;
+            font-family: 'Courier New', monospace;
+            font-size: 13px;
+            resize: vertical;
+        }
+        .sql-textarea:focus {
+            outline: none;
+            border-color: #38bdf8;
+            box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.2);
+        }
+        .result-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 10px;
+            font-size: 12px;
+            min-width: 600px;
+        }
+        .result-table th,
+        .result-table td {
+            border: 1px solid #334155;
+            padding: 8px 10px;
+            text-align: left;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            max-width: 200px;
+        }
+        .result-table th {
+            background: #1e293b;
+            font-weight: 600;
+            color: #38bdf8;
+            position: sticky;
+            top: 0;
+            z-index: 10;
+        }
+        .result-table td {
+            background: #0f172a;
+        }
+        .result-table tr:hover td {
+            background: #1e293b;
+        }
+        .sql-results-container {
+            scroll-behavior: smooth;
+        }
+        .sql-results-container::-webkit-scrollbar {
+            width: 8px;
+        }
+        .sql-results-container::-webkit-scrollbar-track {
+            background: rgba(0, 0, 0, 0.2);
+            border-radius: 4px;
+        }
+        .sql-results-container::-webkit-scrollbar-thumb {
+            background: #334155;
+            border-radius: 4px;
+        }
+        .sql-results-container::-webkit-scrollbar-thumb:hover {
+            background: #475569;
+        }
+        .result-info {
+            color: #22c55e;
+            font-size: 12px;
+            margin-bottom: 8px;
+        }
+        .error-message {
+            color: #ef4444;
+            background: rgba(239, 68, 68, 0.1);
+            border: 1px solid #ef4444;
+            padding: 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            margin-top: 8px;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="sidebar" id="sidebar">
+        <div class="sidebar-toggle" onclick="toggleSidebar()">☰</div>
+        <div class="sidebar-header">
+            <h1>VitalPath Command</h1>
+        </div>
+        <div class="feed-container" id="liveFeed">
+            <div class="feed-item">System Initialized. Awaiting dispatches...</div>
+        </div>
+        <div class="form-container">
+            <h3>New Emergency Dispatch</h3>
+            <form id="patientForm">
+                <input type="text" id="pName" placeholder="Patient Name" required>
+                <div style="display: flex; gap: 5px;">
+                    <input type="number" id="pAge" placeholder="Age" required style="flex: 1;">
+                    <select id="pGender" required style="flex: 2;">
+                        <option value="MALE">Male</option>
+                        <option value="FEMALE">Female</option>
+                        <option value="OTHER">Other</option>
+                    </select>
+                </div>
+                <select id="pBlood" required>
+                    <option value="O+">O+</option><option value="O-">O-</option>
+                    <option value="A+">A+</option><option value="A-">A-</option>
+                    <option value="B+">B+</option><option value="B-">B-</option>
+                    <option value="AB+">AB+</option><option value="AB-">AB-</option>
+                </select>
+                <input type="text" id="pContact" placeholder="Emergency Contact" required>
+                <div style="display: flex; gap: 5px;">
+                    <input type="number" id="pLat" step="0.0001" placeholder="Lat" required>
+                    <input type="number" id="pLng" step="0.0001" placeholder="Lng" required>
+                </div>
+                <button type="submit" class="btn">DISPATCH NOW</button>
+            </form>
+        </div>
+        
+        <div class="sql-container">
+            <h3>SQL Query Interface</h3>
+            <div style="margin-bottom: 10px;">
+                <select id="exampleQueries" onchange="loadExampleQuery()" style="width: 100%; padding: 5px; background: #0f172a; color: #e0e0e0; border: 1px solid #334155; border-radius: 4px;">
+                    <option value="">Select an example query from SQL file...</option>
+                    <option value="q11">Q11: Emergency requests with patient details (INNER JOIN)</option>
+                    <option value="q12">Q12: Completed assignments with full details (4-table JOIN)</option>
+                    <option value="q13">Q13: Patients with no emergency history (LEFT JOIN)</option>
+                    <option value="q14">Q14: Ambulances never dispatched (LEFT JOIN)</option>
+                    <option value="q15">Q15: Patients with high severity emergencies (Subquery)</option>
+                    <option value="q16">Q16: Hospitals never received assignments (NOT IN)</option>
+                    <option value="q17">Q17: Hospitals above zone average (Correlated Subquery)</option>
+                    <option value="q19">Q19: Live dispatch dashboard (VIEW)</option>
+                    <option value="q20">Q20: Hospital bed status classification (CASE)</option>
+                </select>
+            </div>
+            <textarea id="sqlQuery" class="sql-textarea" placeholder="Enter your SQL query here or select an example above..."></textarea>
+            <button onclick="executeSQLQuery()" class="btn" style="margin-top: 10px; width: 100%;">Execute Query</button>
+            <div id="sqlResult"></div>
+        </div>
+    </div>
+
+    <div id="map"></div>
+
+    <div class="legend">
+        <div class="legend-item"><div class="legend-color" style="background: #38bdf8;"></div> Hospital</div>
+        <div class="legend-item"><div class="legend-color" style="background: #22c55e;"></div> Available Ambulance</div>
+        <div class="legend-item"><div class="legend-color" style="background: #f59e0b;"></div> Busy Ambulance</div>
+        <div class="legend-item"><div class="legend-color" style="background: #ef4444;"></div> Patient Emergency</div>
+    </div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script>
+        const map = L.map('map').setView([19.0760, 72.8777], 12);
+        
+        L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+            attribution: '&copy; CartoDB'
+        }).addTo(map);
+
+        let markers = {
+            hospitals: {},
+            ambulances: {},
+            patients: {},
+            paths: {}
+        };
+
+        function toggleSidebar() {
+            document.getElementById('sidebar').classList.toggle('collapsed');
+        }
+
+                function addFeedItem(message, type = '', lat = null, lng = null) {
+            const feed = document.getElementById('liveFeed');
+            const item = document.createElement('div');
+            item.className = `feed-item ${type}`;
+            let content = `${message}<time>${new Date().toLocaleTimeString()}</time>`;
+            
+            if (lat && lng) {
+                content += `
+                    <div class="actions">
+                        <button class="btn-small" onclick="map.flyTo([${lat}, ${lng}], 15)">LOCATE</button>
+                    </div>
+                `;
+            }
+            
+            item.innerHTML = content;
+            feed.prepend(item);
+        }
+
+        async function updateSystemState() {
+            try {
+                const res = await fetch('http://localhost:3000/api/system-state');
+                const data = await res.json();
+
+                // 1. Update Hospitals
+                data.hospitals.forEach(h => {
+                    if (!markers.hospitals[h.id]) {
+                        markers.hospitals[h.id] = L.circleMarker([h.latitude, h.longitude], {
+                            radius: 8, color: '#38bdf8', fillOpacity: 0.8
+                        }).addTo(map);
+                    }
+                    markers.hospitals[h.id].bindPopup(`<b>${h.name}</b><br>Available Beds: ${h.available_er_beds}/${h.total_er_beds}`);
+                });
+
+                // 2. Update Ambulances
+                data.ambulances.forEach(a => {
+                    const color = a.status === 'AVAILABLE' ? '#22c55e' : '#f59e0b';
+                    if (!markers.ambulances[a.id]) {
+                        markers.ambulances[a.id] = L.circleMarker([a.latitude, a.longitude], {
+                            radius: 6, color: color, fillOpacity: 1
+                        }).addTo(map);
+                    } else {
+                        markers.ambulances[a.id].setLatLng([a.latitude, a.longitude]);
+                        markers.ambulances[a.id].setStyle({ color: color });
+                    }
+                    markers.ambulances[a.id].bindPopup(`<b>${a.registration_number}</b><br>Status: ${a.status}<br>Driver: ${a.driver_name}`);
+                });
+
+                // 3. Update Active Requests & Paths
+                const currentRequestIds = new Set(data.requests.map(r => r.id));
+                
+                // Remove old markers/paths
+                Object.keys(markers.patients).forEach(id => {
+                    if (!currentRequestIds.has(id)) {
+                        map.removeLayer(markers.patients[id]);
+                        if (markers.paths[id]) map.removeLayer(markers.paths[id]);
+                        delete markers.patients[id];
+                        delete markers.paths[id];
+                    }
+                });
+
+                data.requests.forEach(r => {
+                    if (!markers.patients[r.id]) {
+                        markers.patients[r.id] = L.circleMarker([r.latitude, r.longitude], {
+                            radius: 10, color: '#ef4444', fillOpacity: 1, weight: 2, dashArray: '2, 2'
+                        }).addTo(map);
+                        
+                        // Add persistent name label (tooltip)
+                        markers.patients[r.id].bindTooltip(r.patient_name, { 
+                            permanent: true, 
+                            direction: 'top', 
+                            className: 'patient-label',
+                            offset: [0, -10]
+                        });
+
+                        addFeedItem(`Emergency: ${r.patient_name}`, 'emergency', r.latitude, r.longitude);
+                    }
+
+                    if (r.amb_lat && r.hosp_lat) {
+                        const pathCoords = [
+                            [r.amb_lat, r.amb_lng],
+                            [r.latitude, r.longitude],
+                            [r.hosp_lat, r.hosp_lng]
+                        ];
+                        if (!markers.paths[r.id]) {
+                            markers.paths[r.id] = L.polyline(pathCoords, {
+                                color: '#f59e0b', weight: 3, dashArray: '10, 10', opacity: 0.7
+                            }).addTo(map);
+                            addFeedItem(`Dispatch: Ambulance routing to ${r.patient_name}`, 'dispatch', r.latitude, r.longitude);
+                        } else {
+                            markers.paths[r.id].setLatLngs(pathCoords);
+                        }
+                    }
+                });
+
+            } catch (err) {
+                console.error('State Update Failed:', err);
+            }
+        }
+
+        document.getElementById('patientForm').onsubmit = async (e) => {
+            e.preventDefault();
+            const payload = {
+                name: document.getElementById('pName').value,
+                age: document.getElementById('pAge').value,
+                gender: document.getElementById('pGender').value,
+                blood_group: document.getElementById('pBlood').value,
+                emergency_contact: document.getElementById('pContact').value,
+                latitude: parseFloat(document.getElementById('pLat').value),
+                longitude: parseFloat(document.getElementById('pLng').value)
+            };
+
+            const res = await fetch('http://localhost:3000/api/patients', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+
+            if (res.ok) {
+                document.getElementById('patientForm').reset();
+                updateSystemState();
+            }
+        };
+
+        // Initialize and poll
+        updateSystemState();
+        setInterval(updateSystemState, 3000);
+
+        // Map Click to populate Lat/Lng
+        map.on('click', (e) => {
+            document.getElementById('pLat').value = e.latlng.lat.toFixed(6);
+            document.getElementById('pLng').value = e.latlng.lng.toFixed(6);
+        });
+
+        // Load Example Query Function
+        function loadExampleQuery() {
+            const select = document.getElementById('exampleQueries');
+            const textarea = document.getElementById('sqlQuery');
+            
+            const queries = {
+                'q11': `-- Q11: Emergency requests with patient details (INNER JOIN)
+SELECT er.id             AS request_id,
+       p.name            AS patient_name,
+       p.age,
+       er.symptom_category,
+       er.severity_score,
+       er.status,
+       er.requested_at
+FROM   emergency_requests er
+JOIN   patients           p  ON p.id = er.patient_id
+ORDER BY er.requested_at DESC;`,
+                
+                'q12': `-- Q12: Completed assignments with full details (4-table JOIN)
+SELECT p.name                AS patient_name,
+       a.registration_number AS ambulance,
+       a.driver_name,
+       h.name                AS hospital,
+       aa.assigned_at,
+       aa.completed_at
+FROM   ambulance_assignments aa
+JOIN   emergency_requests    er ON er.id = aa.request_id
+JOIN   patients              p  ON p.id  = er.patient_id
+JOIN   ambulances            a  ON a.id  = aa.ambulance_id
+JOIN   hospitals             h  ON h.id  = aa.hospital_id
+WHERE  aa.status = 'COMPLETED'
+ORDER BY aa.completed_at DESC;`,
+                
+                'q13': `-- Q13: Patients with no emergency history (LEFT JOIN)
+SELECT p.id, p.name, p.age, p.chronic_diseases
+FROM   patients              p
+LEFT JOIN emergency_requests er ON er.patient_id = p.id
+WHERE  er.id IS NULL;`,
+                
+                'q14': `-- Q14: Ambulances never dispatched (LEFT JOIN)
+SELECT a.registration_number, a.driver_name, a.status
+FROM   ambulances            a
+LEFT JOIN ambulance_assignments aa ON aa.ambulance_id = a.id
+WHERE  aa.id IS NULL
+ORDER BY a.status;`,
+                
+                'q15': `-- Q15: Patients with high severity emergencies (Subquery)
+SELECT id, name, age, blood_group, chronic_diseases
+FROM   patients
+WHERE  id IN (
+    SELECT patient_id
+    FROM   emergency_requests
+    WHERE  severity_score >= 9
+)
+ORDER BY name;`,
+                
+                'q16': `-- Q16: Hospitals never received assignments (NOT IN)
+SELECT id, name, zone, available_er_beds
+FROM   hospitals
+WHERE  id NOT IN (
+    SELECT DISTINCT hospital_id
+    FROM   ambulance_assignments
+)
+ORDER BY zone;`,
+                
+                'q17': `-- Q17: Hospitals above zone average (Correlated Subquery)
+SELECT name, zone, available_er_beds
+FROM   hospitals h1
+WHERE  available_er_beds > (
+    SELECT AVG(available_er_beds)
+    FROM   hospitals h2
+    WHERE  h2.zone = h1.zone
+)
+ORDER BY zone, available_er_beds DESC;`,
+                
+                'q19': `-- Q19: Live dispatch dashboard (VIEW)
+SELECT
+    er.id                  AS request_id,
+    p.name                 AS patient_name,
+    p.age,
+    p.blood_group,
+    er.symptom_category,
+    er.severity_score,
+    er.status              AS request_status,
+    a.registration_number  AS ambulance_reg,
+    a.driver_name,
+    h.name                 AS destination_hospital,
+    h.zone,
+    h.available_er_beds,
+    aa.assigned_at
+FROM   emergency_requests    er
+JOIN   patients              p  ON p.id  = er.patient_id
+JOIN   ambulance_assignments aa ON aa.request_id = er.id
+JOIN   ambulances            a  ON a.id  = aa.ambulance_id
+JOIN   hospitals             h  ON h.id  = aa.hospital_id
+WHERE  er.status NOT IN ('COMPLETED', 'CANCELLED')
+ORDER BY severity_score DESC;`,
+                
+                'q20': `-- Q20: Hospital bed status classification (CASE)
+SELECT
+    name,
+    zone,
+    available_er_beds,
+    total_er_beds,
+    CASE
+        WHEN total_er_beds = 0                                        THEN 'N/A'
+        WHEN available_er_beds::FLOAT / total_er_beds < 0.10          THEN 'CRITICAL'
+        WHEN available_er_beds::FLOAT / total_er_beds < 0.25          THEN 'LOW'
+        WHEN available_er_beds::FLOAT / total_er_beds < 0.50          THEN 'ADEQUATE'
+        ELSE                                                                'GOOD'
+    END AS bed_status
+FROM  hospitals
+ORDER BY (available_er_beds::FLOAT / NULLIF(total_er_beds, 0)) ASC;`
+            };
+            
+            if (select.value && queries[select.value]) {
+                textarea.value = queries[select.value];
+            } else {
+                textarea.value = '';
+            }
+        }
+
+        // SQL Query Execution Function
+        async function executeSQLQuery() {
+            const query = document.getElementById('sqlQuery').value.trim();
+            const resultDiv = document.getElementById('sqlResult');
+            
+            if (!query) {
+                resultDiv.innerHTML = '<div class="error-message">Please enter a SQL query</div>';
+                return;
+            }
+            
+            resultDiv.innerHTML = '<div style="color: #38bdf8;">Executing query...</div>';
+            
+            try {
+                const response = await fetch('http://localhost:3000/api/sql-query', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ query })
+                });
+                
+                const data = await response.json();
+                
+                if (!response.ok) {
+                    resultDiv.innerHTML = `<div class="error-message">${data.error}</div>`;
+                    return;
+                }
+                
+                // Display results
+                let html = `<div class="result-info">${data.rowCount} rows returned</div>`;
+                
+                if (data.rows.length > 0) {
+                    html += '<div class="sql-results-container"><table class="result-table"><thead><tr>';
+                    
+                    // Create table headers
+                    data.columns.forEach(column => {
+                        html += `<th>${column}</th>`;
+                    });
+                    html += '</tr></thead><tbody>';
+                    
+                    // Create table rows
+                    data.rows.forEach(row => {
+                        html += '<tr>';
+                        data.columns.forEach(column => {
+                            const value = row[column] !== null ? row[column] : 'NULL';
+                            html += `<td>${value}</td>`;
+                        });
+                        html += '</tr>';
+                    });
+                    
+                    html += '</tbody></table></div>';
+                } else {
+                    html += '<div style="color: #94a3b8; font-size: 12px;">No rows returned</div>';
+                }
+                
+                resultDiv.innerHTML = html;
+                
+            } catch (error) {
+                resultDiv.innerHTML = `<div class="error-message">Network error: ${error.message}</div>`;
+            }
+        }
+    </script>
+</body>
+</html>
